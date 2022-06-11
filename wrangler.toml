@@ -1,0 +1,15 @@
+name = "short-url"
+type = "rust"
+workers_dev = true
+compatibility_date = "2022-01-20"
+main = "build/worker/shim.mjs"
+
+kv_namespaces = [
+  { binding = "SHORT_URL", id = "7c86ed7e2d6444cba3494e16bac6ffc1" },
+]
+
+[vars]
+WORKERS_RS_VERSION = "0.0.9"
+
+[build]
+command = "cargo install -q worker-build && worker-build --release" # required
