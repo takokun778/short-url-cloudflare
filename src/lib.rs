@@ -12,8 +12,6 @@ fn log_request(req: &Request) {
     );
 }
 
-const none = Url::parse("https://www.google.com/")?;
-
 #[event(fetch)]
 pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Response> {
     log_request(&req);
@@ -30,11 +28,37 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
     // functionality and a `RouteContext` which you can use to  and get route parameters and
     // Environment bindings like KV Stores, Durable Objects, Secrets, and Variables.
     router
-        .get("", |_, _| {
-            Response::redirect_with_status(Url::parse("https://www.google.com/")?, 301)
+        .get_async("", |_, ctx| async move {
+            let store = match ctx.kv("SHORT_URL") {
+                Ok(kv) => kv,
+                Err(e) => return Response::error(e.to_string(), 500),
+            };
+
+            let url = match store.get("default").text().await {
+                Ok(value) => value,
+                Err(e) => return Response::error(e.to_string(), 500),
+            };
+
+            match url {
+                Some(url) => return Response::redirect_with_status(Url::parse(&url)?, 301),
+                None => return Response::error("", 500),
+            }
         })
-        .get("/", |_, _| {
-            Response::redirect_with_status(Url::parse("https://www.google.com/")?, 301)
+        .get_async("/", |_, ctx| async move {
+            let store = match ctx.kv("SHORT_URL") {
+                Ok(kv) => kv,
+                Err(e) => return Response::error(e.to_string(), 500),
+            };
+
+            let url = match store.get("default").text().await {
+                Ok(value) => value,
+                Err(e) => return Response::error(e.to_string(), 500),
+            };
+
+            match url {
+                Some(url) => return Response::redirect_with_status(Url::parse(&url)?, 301),
+                None => return Response::error("", 500),
+            }
         })
         .get_async("/:key", |_, ctx| async move {
             let key = match ctx.param("key") {
@@ -42,29 +66,25 @@ pub async fn main(req: Request, env: Env, _ctx: worker::Context) -> Result<Respo
                 None => "",
             };
 
-            let kv = match ctx.kv("SHORT_URL") {
+            let store = match ctx.kv("SHORT_URL") {
                 Ok(kv) => kv,
                 Err(e) => return Response::error(e.to_string(), 500),
             };
 
-            let value = match kv.get(key).text().await {
+            let def = match store.get("default").text().await {
                 Ok(value) => value,
-                Err(_) => {
-                    return Response::redirect_with_status(
-                        Url::parse("https://www.google.com/")?,
-                        301,
-                    )
-                }
+                Err(e) => return Response::error(e.to_string(), 500),
+            }
+            .unwrap();
+
+            let url = match store.get(key).text().await {
+                Ok(value) => value,
+                Err(_) => return Response::redirect_with_status(Url::parse(&def)?, 301),
             };
 
-            match value {
+            match url {
                 Some(url) => return Response::redirect_with_status(Url::parse(&url)?, 301),
-                None => {
-                    return Response::redirect_with_status(
-                        Url::parse("https://www.google.com/")?,
-                        301,
-                    )
-                }
+                None => return Response::redirect_with_status(Url::parse(&def)?, 301),
             }
         })
         .run(req, env)
